@@ -1,0 +1,49 @@
+# Fork-only workflow (0ll0qp/gitlab-token-expiration): every push on the dev
+# branch publishes a pre-release vX.Y.Z-0ll0qp.N built with goreleaser-dev.yml.
+name: dev-release
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: dev-release
+  cancel-in-progress: false
+
+jobs:
+  dev-release:
+    if: github.repository == '0ll0qp/gitlab-token-expiration'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      # Toolchain (Go, goreleaser, ...) is pinned in mise.toml
+      - uses: jdx/mise-action@v4
+        with:
+          install: true
+          cache: true
+
+      - name: Compute dev version
+        id: version
+        run: |
+          git fetch --force --tags https://github.com/sgaunet/gitlab-token-expiration.git
+          base=$(git tag -l 'v*' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' | sort -V | tail -1)
+          if [ -z "$base" ]; then base=v0.0.0; fi
+          IFS=. read -r major minor patch <<< "${base#v}"
+          tag="v${major}.${minor}.$((patch + 1))-0ll0qp.${GITHUB_RUN_NUMBER}"
+          git tag "$tag"
+          echo "Upstream base: $base -> dev tag: $tag"
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: Create dev pre-release
+        run: goreleaser release --clean --config goreleaser-dev.yml --skip=validate
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GORELEASER_CURRENT_TAG: ${{ steps.version.outputs.tag }}
