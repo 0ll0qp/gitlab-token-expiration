@@ -19,6 +19,7 @@ This tool lists all sort of expirable tokens of gitlab projects, gitlab groups a
 * **Robust**: a group or project you are not allowed to read (`401`/`403`) is skipped with a warning instead of stopping the whole run.
 * **Complete**: every list call is paginated, and `group -i` goes down subgroups at any depth.
 * **Filter by token name**: `--filter-name <regex>` shows only the matching tokens, `-v, --invert` hides them instead (like `grep -v`), `--ignore-case` ignores the case ([details](#filtering-tokens-by-name)).
+* **Script friendly**: `-o, --output json|yaml` prints the tokens as JSON or YAML instead of the table ([details](#output-formats)).
 
 ## Getting started
 
@@ -33,6 +34,10 @@ $ gitlab-token-expiration group -p 10   # same, with 10 concurrent API calls
 # Only the tokens whose name matches a regex, or all but those ones with -v
 $ gitlab-token-expiration group --filter-name 'hjh/supervision/dev/nicolas'
 $ gitlab-token-expiration group --filter-name 'hjh/supervision/dev/nicolas' -v
+
+# JSON or YAML output, for scripts
+$ gitlab-token-expiration project -o json | jq -r '.[] | select(.expires_at < "2027-01-01") | .name'
+$ gitlab-token-expiration group -o yaml
 
 $ gitlab-token-expiration -h
 ```
@@ -101,6 +106,23 @@ gitlab-token-expiration group --filter-name 'hjh/supervision/dev/nicolas' -v
 gitlab-token-expiration project --filter-name '^hjh/|^renovate$' --invert --ignore-case
 ```
 
+### Output formats
+
+`-o, --output` selects the output format of `group`, `project` and `pat`:
+
+| Format            | Description                                                                 |
+|-------------------|-----------------------------------------------------------------------------|
+| `table` (default) | Colored table for humans                                                    |
+| `json`            | JSON list of tokens                                                         |
+| `yaml`            | YAML list of tokens                                                         |
+
+Each token has the fields `source`, `type`, `id`, `name`, `revoked` and `expires_at` (`YYYY-MM-DD`, empty when the token never expires). As with the table, revoked tokens are only included with `-r`, and `--filter-name` applies. Only the tokens are written on stdout (progress and warnings go to stderr), and an empty result is an empty list (`[]`), so the output can be piped to `jq` or `yq`.
+
+```bash
+# Names of the tokens expiring before 2027
+gitlab-token-expiration group -o json | jq -r '.[] | select(.expires_at != "" and .expires_at < "2027-01-01") | "\(.source) \(.name) \(.expires_at)"'
+```
+
 ### Common flags
 
 | Flag                                 | Description                                                    |
@@ -111,6 +133,7 @@ gitlab-token-expiration project --filter-name '^hjh/|^renovate$' --invert --igno
 | `--filter-name`                      | Only show tokens whose name matches this regular expression    |
 | `-v, --invert`                       | With `--filter-name`, hide the matching tokens instead (like `grep -v`) |
 | `--ignore-case`                      | With `--filter-name`, case-insensitive match                   |
+| `-o, --output`                       | Output format: `table` (default), `json` or `yaml`             |
 | `-r, --revoked`                      | Also print revoked tokens                                      |
 | `-H, --no-header`                    | Do not print the table header                                  |
 | `-C, --no-color`                     | Do not print colors                                            |

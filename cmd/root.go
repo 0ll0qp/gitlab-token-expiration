@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/sgaunet/gitlab-token-expiration/pkg/app"
 	"github.com/sgaunet/gitlab-token-expiration/pkg/views"
@@ -22,6 +23,7 @@ var parallel int          // Maximum number of concurrent GitLab API calls
 var filterName string     // Regular expression on token names
 var invertFilter bool     // Keep the tokens that do NOT match filterName
 var filterIgnoreCase bool // Case-insensitive filterName
+var outputFormat string   // table, json or yaml
 
 // rootCmd represents the base command when called without any subcommands.
 var rootCmd = &cobra.Command{
@@ -78,13 +80,29 @@ func newNameFilter() (*app.NameFilter, error) {
 	return f, nil
 }
 
-// newTableOutput returns the table renderer configured from the command-line flags.
-func newTableOutput() views.TableOutput {
-	return views.NewTableOutput(views.WithColorOption(!printNoColor),
-		views.WithHeaderOption(!printNoHeader),
-		views.WithPrintRevokedOption(printRevoked),
-		views.WithNbDaysBeforeExp(nbDaysBeforeExp),
-	)
+// addOutputFlag adds the output format flag to cmd.
+func addOutputFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVarP(&outputFormat, "output", "o", views.FormatTable,
+		"Output format: "+strings.Join(views.Formats, ", "))
+}
+
+// newRenderer returns the renderer selected by --output, configured from the
+// command-line flags.
+func newRenderer() (views.Renderer, error) { //nolint:ireturn // picks the renderer from --output
+	switch outputFormat {
+	case views.FormatTable:
+		return views.NewTableOutput(views.WithColorOption(!printNoColor),
+			views.WithHeaderOption(!printNoHeader),
+			views.WithPrintRevokedOption(printRevoked),
+			views.WithNbDaysBeforeExp(nbDaysBeforeExp),
+		), nil
+	default:
+		r, err := views.NewStructuredOutput(outputFormat, os.Stdout, printRevoked)
+		if err != nil {
+			return nil, fmt.Errorf("--output: %w (expected one of %s)", err, strings.Join(views.Formats, ", "))
+		}
+		return r, nil
+	}
 }
 
 // Execute adds all child commands to the root command and sets flags appropriately.
@@ -110,6 +128,7 @@ func init() {
 	groupCmd.Flags().IntVarP(&parallel, "parallel", "p", app.DefaultParallel,
 		"Maximum number of concurrent GitLab API calls")
 	addFilterFlags(groupCmd)
+	addOutputFlag(groupCmd)
 	rootCmd.AddCommand(groupCmd)
 
 	projectCmd.Flags().Int64VarP(&gitlabID, "id", "i", 0,
@@ -122,6 +141,7 @@ func init() {
 	projectCmd.Flags().IntVarP(&parallel, "parallel", "p", app.DefaultParallel,
 		"Maximum number of concurrent GitLab API calls")
 	addFilterFlags(projectCmd)
+	addOutputFlag(projectCmd)
 	rootCmd.AddCommand(projectCmd)
 
 	patCmd.Flags().BoolVarP(&printRevoked, "revoked", "r", false, "Print revoked tokens")
@@ -130,5 +150,6 @@ func init() {
 	patCmd.Flags().UintVarP(&nbDaysBeforeExp, "days-before-expiration", "d", DefaultNbDaysBeforeExp,
 		"Number of days before expiration date to display it in yellow")
 	addFilterFlags(patCmd)
+	addOutputFlag(patCmd)
 	rootCmd.AddCommand(patCmd)
 }
